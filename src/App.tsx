@@ -1,6 +1,8 @@
 import "./index.css";
 import { APITester } from "./APITester";
+import { PerformanceAnalyzer } from "./PerformanceAnalyzer";
 import { Card, CardContent } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import logo from "./logo.svg";
 import reactLogo from "./react.svg";
@@ -24,14 +26,26 @@ export function App() {
       <Card className="bg-card/50 backdrop-blur-sm border-muted">
         <CardContent className="pt-6">
           <h1 className="text-5xl font-bold my-4 leading-tight">Bun + React</h1>
-          <p>
+          <p className="mb-6">
             Edit{" "}
             <code className="relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm">
               src/App.tsx
             </code>{" "}
             and save to test HMR
           </p>
-          <APITester />
+          
+          <Tabs defaultValue="api-tester" className="w-full">
+            <TabsList className="grid w-full max-w-md mx-auto grid-cols-2 mb-8">
+              <TabsTrigger value="api-tester">API Tester</TabsTrigger>
+              <TabsTrigger value="performance">Performance Analyzer</TabsTrigger>
+            </TabsList>
+            <TabsContent value="api-tester">
+              <APITester />
+            </TabsContent>
+            <TabsContent value="performance">
+              <PerformanceAnalyzer />
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
     </div>

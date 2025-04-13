@@ -47,7 +47,7 @@ const server = serve({
         return Response.json(analysis);
       } catch (error) {
         console.error("Error analyzing URL:", error);
-        return new Response("Error analyzing URL: " + error.message, { status: 500 });
+        return new Response("Error analyzing URL: " + (error as Error).message, { status: 500 });
       }
     },
   },
@@ -55,14 +55,71 @@ const server = serve({
   development: process.env.NODE_ENV !== "production",
 });
 
+// Type definitions for our metrics
+interface Resource {
+  url: string;
+  type: string;
+  status: number;
+  size: number;
+  timing: any;
+  headers: Record<string, string>;
+}
+
+interface PerformanceMetrics {
+  ttfb: number;
+  domLoaded: number;
+  windowLoaded: number;
+  fcp?: number;
+  lcp?: number;
+  cls?: number;
+  [key: string]: any;
+}
+
+interface RenderBlockingResource {
+  type: string;
+  url: string | undefined;
+  blocking: string;
+}
+
+interface Recommendation {
+  type: string;
+  severity: string;
+  message: string;
+}
+
+interface AnalysisMetrics {
+  urlAnalyzed: string;
+  timestamp: string;
+  resources: Resource[];
+  totalResources: number;
+  totalSize: number;
+  loadTime: number;
+  renderBlockingResources: RenderBlockingResource[];
+  performanceMetrics: PerformanceMetrics;
+  recommendations: Recommendation[];
+}
+
+// Custom type for LayoutShift entries that have a value property
+interface LayoutShiftEntry extends PerformanceEntry {
+  value: number;
+}
+
 // Function to analyze URL performance
-async function analyzeUrl(url) {
+async function analyzeUrl(url: string): Promise<AnalysisMetrics> {
   // Basic metrics
-  const metrics = {
+  const metrics: AnalysisMetrics = {
     urlAnalyzed: url,
     timestamp: new Date().toISOString(),
     resources: [],
-    performanceMetrics: {},
+    totalResources: 0,
+    totalSize: 0,
+    loadTime: 0,
+    renderBlockingResources: [],
+    performanceMetrics: {
+      ttfb: 0,
+      domLoaded: 0,
+      windowLoaded: 0
+    },
     recommendations: [],
   };
   
@@ -74,7 +131,7 @@ async function analyzeUrl(url) {
   await page.setRequestInterception(true);
   
   // Track resources
-  const resourceStats = new Map();
+  const resourceStats = new Map<string, Resource>();
   
   page.on('request', request => {
     request.continue();
@@ -151,7 +208,8 @@ async function analyzeUrl(url) {
           window.PerformanceObserver.supportedEntryTypes.includes('layout-shift')) {
         const layoutShiftEntries = performance.getEntriesByType('layout-shift');
         if (layoutShiftEntries) {
-          cls = layoutShiftEntries.reduce((total, entry) => total + entry.value, 0);
+          // Using a type assertion here because the browser context knows this type
+          cls = (layoutShiftEntries as any[]).reduce((total, entry) => total + (entry.value || 0), 0);
         }
       }
       
@@ -168,7 +226,7 @@ async function analyzeUrl(url) {
   const $ = cheerio.load(htmlContent);
   
   // Check for render-blocking resources
-  const renderBlockingResources = [];
+  const renderBlockingResources: RenderBlockingResource[] = [];
   $('head link[rel="stylesheet"]').each((_, el) => {
     renderBlockingResources.push({
       type: 'css',
@@ -188,10 +246,10 @@ async function analyzeUrl(url) {
   });
   
   // Generate recommendations
-  const recommendations = [];
+  const recommendations: Recommendation[] = [];
   
-  // Check for large resources
-  for (const [_, resource] of resourceStats.entries()) {
+  // Check for large resources - using Array.from to fix iteration issues
+  Array.from(resourceStats.entries()).forEach(([_, resource]) => {
     if (resource.size > 1000000) { // 1MB+
       recommendations.push({
         type: 'resource-size',
@@ -199,10 +257,10 @@ async function analyzeUrl(url) {
         message: `Large resource (${(resource.size / 1024 / 1024).toFixed(2)} MB): ${resource.url}`,
       });
     }
-  }
+  });
   
-  // Check for caching opportunities
-  for (const [_, resource] of resourceStats.entries()) {
+  // Check for caching opportunities - using Array.from to fix iteration issues
+  Array.from(resourceStats.entries()).forEach(([_, resource]) => {
     const cacheControl = resource.headers['cache-control'];
     if (!cacheControl && ['image', 'font', 'stylesheet', 'script'].includes(resource.type)) {
       recommendations.push({
@@ -211,7 +269,7 @@ async function analyzeUrl(url) {
         message: `Missing cache headers for: ${resource.url}`,
       });
     }
-  }
+  });
   
   // Populate the full metrics object
   metrics.resources = Array.from(resourceStats.values());
@@ -226,7 +284,7 @@ async function analyzeUrl(url) {
     windowLoaded: performanceTiming.loadEventEnd - performanceTiming.navigationStart,
     ...lighthouseMetrics,
     // Add puppeteer performance metrics
-    ...performanceMetrics.metrics.reduce((acc, metric) => {
+    ...performanceMetrics.metrics.reduce((acc: Record<string, any>, metric: any) => {
       acc[metric.name] = metric.value;
       return acc;
     }, {})
